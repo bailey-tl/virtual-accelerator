@@ -48,7 +48,6 @@ def sns_arguments():
     va_args = va_parser.initialize_arguments()
     return va_args
 
-
 def build_sns(**kwargs):
     kwargs = sns_arguments() | kwargs
 
