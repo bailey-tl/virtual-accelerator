@@ -54,6 +54,7 @@ def build_sns(**kwargs):
 
     debug = kwargs['debug']
     save_bunch = kwargs['save_bunch']
+    refresh_rate = kwargs['refresh_rate']
 
     config_file = Path(kwargs['config_file'])
     with open(config_file, "r") as json_file:
@@ -213,7 +214,8 @@ def build_sns(**kwargs):
     for name, model_name in wire_scanners.items():
         if model_name in element_list:
             model.get_element_controller(model_name).get_element().setBinNumber(bin_number)
-            ws_device = WireScanner(name, model_name, {'bin_number': bin_number})
+            # Passing refresh rate to the WireScanner device for velocity calculations.
+            ws_device = WireScanner(name, model_name, {'bin_number': bin_number,'refresh_rate':refresh_rate})
             beam_line.add_device(ws_device)
 
     bpms = devices_dict["BPM"]
