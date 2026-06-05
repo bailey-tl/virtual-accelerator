@@ -365,6 +365,7 @@ class WireScanner(Device):
     # diagonal wire will be in the middle
     d_offset = 0.0 # [m]
     wire_coeff = 1 / math.sqrt(2)
+    # Parameters for waveform trace
     trace_bin_number = 1024
     pulse_width = 0.01  # [ms]
     trace_time = 0.1  # [ms]
