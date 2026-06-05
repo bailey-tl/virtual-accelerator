@@ -296,6 +296,25 @@ class BPM(Device):
 
 
 class WireScanner(Device):
+    #  _
+    # |\    Direction of motion
+    #   \
+    #    \
+    #    _\|
+    #   __
+    #  /  \.
+    # /     \.
+    # \___y___\
+    #  \     /|\
+    #   \   D | \
+    #    \/   |  \
+    #     \   X   \
+    #      \  |    \
+    #       \ |     \
+    #        \|      \
+    #             .|.
+    #            --*--    <-- Beam
+    #             '|'
     # EPICS PV names
     x_charge_pv = 'Hor_Cont'  # [arb. units]
     y_charge_pv = 'Ver_Cont'  # [arb. units]
@@ -343,11 +362,16 @@ class WireScanner(Device):
     d_offset = 0.0 # [m]
     wire_coeff = 1 / math.sqrt(2)
 
-    # Device Defaults.
-    default_initial_position = -0.03  # [m]
-    default_initial_speed = .001  # [m/s]
-    default_bin_number = 50  # number
-    default_dx = .001 # [m]
+    # Device Defaults. These will be overridden by initial_dict if keys match
+    initial_defaults = {
+        "x_offset": -0.015, # [m]
+        "y_offset": 0.015,# [m]
+        "position": -0.03,# [m]
+        "speed": 0.001, # [m/s]
+        "wire_count": 2,
+        "bin_number": 50,
+        "dx": 0.001 # [m]
+    }
 
     def __init__(self, name: str, model_name: str = None, initial_dict: Dict[str, Any] = None):
         if model_name is None:
@@ -357,42 +381,29 @@ class WireScanner(Device):
         super().__init__(name, self.model_name)
         initial_dict = {} if initial_dict is None else initial_dict
 
-        # Changes the units from meters to millimeters for associated PVs.
-        self.milli_units = LinearTInv(scaler=1e3)
-
-        # Use defaults for any unspecified parameters
-        if WireScanner.position_key in initial_dict:
-            initial_position = initial_dict[WireScanner.position_key]
-        else:
-            initial_position = WireScanner.default_initial_position
-        if WireScanner.speed_key in initial_dict:
-            initial_speed = initial_dict[WireScanner.speed_key]
-        else:
-            initial_speed = WireScanner.default_initial_speed
-        if WireScanner.bin_number_key in initial_dict:
-            bin_number = initial_dict[WireScanner.bin_number_key]
-        else:
-            bin_number = WireScanner.default_bin_number
-        # Pulling the beam refresh rate from the command line
-        if WireScanner.refresh_rate_key in initial_dict:
-            self.refresh_rate = initial_dict[WireScanner.refresh_rate_key]
-        else:
-            raise ValueError("WireScanner requires a rep rate to be specified.")
-        if WireScanner.dx_key in initial_dict:
-            dx = initial_dict[WireScanner.dx_key]
-        else:
-            dx = WireScanner.default_dx
+        # Apply each key in the passed dict to self
+        for key in initial_dict:
+            setattr(self, key, initial_dict[key])
+        # Apply defaults that are not already set by the passed dict
+        for key in self.initial_defaults:
+            if key not in initial_dict:
+                setattr(self, key, self.initial_defaults[key])
 
         # Defines internal parameters to keep track of the wire position.
-        self.last_wire_pos = initial_position
+        self.last_wire_pos = self.position
         self.last_wire_time = time.time()
-        self.wire_speed = initial_speed
-
+        self.wire_speed = self.speed
+        self.last_direction = 1
+        # Changes the units from meters to millimeters for associated PVs.
+        self.milli_units = LinearTInv(scaler=1e3)
+        # Threshold at which below the scanner is set to the set point
+        self.tolerance = 1e-3
+        # plan to later have wire count as a parameter in va_config
+        self.wire_count = self.initial_defaults["wire_count"]
         # Creates flat noise for associated PVs.
         xy_noise = AbsNoise(noise=1e-9)
         pos_noise = AbsNoise(noise=1e-6)
-
-        # Registers the device's PVs with the server.
+        # Registers the device's PVs with the server. Diagonal wire not supported yet.
         self.register_measurement(WireScanner.x_charge_pv, noise=xy_noise)
         self.register_measurement(WireScanner.y_charge_pv, noise=xy_noise)
         # self.register_measurement(WireScanner.d_charge_pv, noise=xy_noise)
@@ -402,95 +413,86 @@ class WireScanner(Device):
         self.register_measurement(WireScanner.x_sigma_pv, noise=xy_noise, transform=self.milli_units)
         self.register_measurement(WireScanner.y_sigma_pv, noise=xy_noise, transform=self.milli_units)
         # self.register_measurement(WireScanner.d_sigma_pv, noise=xy_noise, transform=self.milli_units)
-        self.register_measurement(WireScanner.x_profile_pv, definition={'count': bin_number})
-        self.register_measurement(WireScanner.x_axis_pv, transform=self.milli_units, definition={'count': bin_number})
-        self.register_measurement(WireScanner.y_profile_pv, definition={'count': bin_number})
-        self.register_measurement(WireScanner.y_axis_pv, transform=self.milli_units, definition={'count': bin_number})
+        self.register_measurement(WireScanner.x_profile_pv, definition={'count': self.bin_number})
+        self.register_measurement(WireScanner.x_axis_pv, transform=self.milli_units, definition={'count': self.bin_number})
+        self.register_measurement(WireScanner.y_profile_pv, definition={'count': self.bin_number})
+        self.register_measurement(WireScanner.y_axis_pv, transform=self.milli_units, definition={'count': self.bin_number})
         # self.register_measurement(WireScanner.d_profile_pv, definition={'count': bin_number})
         # self.register_measurement(WireScanner.d_axis_pv, transform=self.milli_units, definition={'count': bin_number})
-
-        self.register_setting(WireScanner.speed_pv, default=initial_speed, transform=self.milli_units)
-        self.register_setting(WireScanner.dx_pv, default=dx, transform=self.milli_units)
-        self.register_setting(WireScanner.position_pv, default=initial_position, transform=self.milli_units)
+        # PVs for client I/O
+        self.register_setting(WireScanner.speed_pv, default=self.speed, transform=self.milli_units)
+        self.register_setting(WireScanner.dx_pv, default=self.dx, transform=self.milli_units)
+        self.register_setting(WireScanner.position_pv, default=self.position, transform=self.milli_units)
         self.register_readback(WireScanner.position_readback_pv, WireScanner.position_pv, transform=self.milli_units,
                                noise=pos_noise)
         self.register_parameter(WireScanner.refresh_rate_pv,default=self.refresh_rate)
-
+        # Initialize the individual wires.
+        self.wires = [self.Wire(self,axis) for axis in ["Hor", "Ver"]]
+        if self.wire_count == 3:
+            self.wires.append(self.Wire(self,"Diag"))
+    # Sub class for the individual wires. Helps make the amount of wires modular
+    class Wire():
+        def __init__(self, ws, axis: str):
+            self.axis = axis
+            self.ws = ws
+            self.position = 0
+            self.wire_coeff = 1 / math.sqrt(2)
+            self.config = {
+                "Hor": {"offset": ws.x_offset, "coeff": self.wire_coeff, "key_prefix":"x_"},
+                "Ver": {"offset": ws.y_offset, "coeff": self.wire_coeff, "key_prefix":"y_"},
+                "Diag": {"offset": 0, "coeff": 1.0, "key_prefix": "d_"},
+            }
+        # Wire offset not used at the moment. Previous code had position of wire linearly scaling with absolute position
+        # of scanner, Meaning the wires spread out as they moved away from the beam
+        def set_wire_position(self, position: float):
+            wire_factors = self.config[self.axis]
+            self.position = position + wire_factors["offset"]
     # Function to find the position of the virtual wire using time of flight from the previous position and the speed of
-    # the wire.
+    # the wire. (Thomas Bailey:) I moved much of this code into update_readbacks alongside the addition of the event
+    # generating loop in the server. This function is still called in slit_va.py so it is left, with the same return
+    # value as before
     def get_wire_position(self):
-        last_pos = self.last_wire_pos
-        last_time = self.last_wire_time
-        wire_speed = self.get_parameter_value(WireScanner.speed_pv)
-        pos_goal = self.get_parameter_value(WireScanner.position_pv)
-        direction = np.sign(pos_goal - last_pos)
-        current_time = time.time()
-        wire_pos = direction * wire_speed * (current_time - last_time) + last_pos
+        return self.last_wire_pos
 
-        # If the wire has passed it's objective, place it at it's objective.
-        if last_pos == pos_goal:
-            wire_pos = pos_goal
-        elif direction < 0 and wire_pos < pos_goal:
-            wire_pos = pos_goal
-        elif direction > 0 and wire_pos > pos_goal:
-            wire_pos = pos_goal
-
-        # Reset variables for next calculation.
-        self.last_wire_time = current_time
-        self.last_wire_pos = wire_pos
-
-        return wire_pos
-
-    # For the input setting PV (not the readback PV), updates it's associated readback on the server using the model.
+    # Called on every server update. User inputs dX to control speed.
     def update_readbacks(self):
-        wire_pos = WireScanner.get_wire_position(self)
-        dx = self.get_parameter_value(WireScanner.dx_pv)
-        self.server_setting_override(WireScanner.speed_pv, self.refresh_rate * dx)
-        self.update_readback(WireScanner.position_readback_pv, wire_pos)
+        dx = self.get_parameter_value("Diag_dX")
+        speed = dx*self.refresh_rate
+        self.update_readback("Speed_Set",speed)
+        current_position = self.last_wire_pos
+        setpoint = self.get_parameter_value("Position_Set")
+        delta_s = setpoint-current_position
+        delta_t = time.time() - self.last_wire_time
+        direction = np.sign(delta_s)
+        new_position = current_position + direction * speed * delta_t
+        if abs(delta_s) < self.tolerance:
+            new_position = setpoint
+            self.update_readback("Position",new_position)
+        else:
+            self.update_readback("Position",new_position)
+        self.last_wire_pos = new_position
+        self.last_wire_time = time.time()
+        # Finally, update position of individual wires
+        for wire in self.wires:
+            wire.set_wire_position(new_position)
 
-    # Updates the measurement values on the server. Needs the model key associated with its value and the new value.
-    # This is where the measurement PV name is associated with it's model key.
+    # Called on beam events and determines how much charge each wire sees
     def update_measurements(self, new_params: Dict[str, Dict[str, Any]] = None):
-        # Find the current position of the center of the wire scanner
-        wire_pos = WireScanner.get_wire_position(self)
-
+        # load model
         ws_params = new_params[self.model_name]
-        x_hist = ws_params[WireScanner.x_hist_key]
-        x_axis = x_hist[:, 0]
-        x_profile = x_hist[:, 1]
-        y_hist = ws_params[WireScanner.y_hist_key]
-        y_axis = y_hist[:, 0]
-        y_profile = y_hist[:, 1]
-        # d_hist = ws_params[WireScanner.d_hist_key]
-        # d_axis = d_hist[:, 0]
-        # d_profile = d_hist[:, 1]
-
-        # Find the location of the vertical wire. Then interpolate the histogram from the model at that value.
-        x_pos = WireScanner.wire_coeff * wire_pos + WireScanner.x_offset
-        x_value = np.interp(x_pos, x_axis, x_profile, left=0, right=0)
-        self.update_measurement(WireScanner.x_charge_pv, x_value)
-
-        y_pos = WireScanner.wire_coeff * wire_pos + WireScanner.y_offset
-        y_value = np.interp(y_pos, y_axis, y_profile, left=0, right=0)
-        self.update_measurement(WireScanner.y_charge_pv, y_value)
-        # Placeholder code for the diagonal wire.
-        # d_pos = wire_pos + WireScanner.d_offset
-        # d_value = np.interp(d_pos, d_axis, d_profile, left=0, right=0)
-        # self.update_measurement(WireScanner.d_charge_pv, d_value)
-
-        self.update_measurement(WireScanner.x_profile_pv, x_profile)
-        self.update_measurement(WireScanner.x_axis_pv, x_axis)
-        self.update_measurement(WireScanner.y_profile_pv, y_profile)
-        self.update_measurement(WireScanner.y_axis_pv, y_axis)
-        # self.update_measurement(WireScanner.d_profile_pv, d_profile)
-        # self.update_measurement(WireScanner.d_axis_pv, d_axis)
-
-        self.update_measurement(WireScanner.x_avg_pv, ws_params[WireScanner.x_avg_key])
-        self.update_measurement(WireScanner.y_avg_pv, ws_params[WireScanner.y_avg_key])
-        # self.update_measurement(WireScanner.d_avg_pv, ws_params[WireScanner.d_avg_key])
-        self.update_measurement(WireScanner.x_sigma_pv, ws_params[WireScanner.x_sigma_key])
-        self.update_measurement(WireScanner.y_sigma_pv, ws_params[WireScanner.y_sigma_key])
-        # self.update_measurement(WireScanner.d_sigma_pv, ws_params[WireScanner.d_sigma_key])
+        # Loop through each wire and update its charge measurement
+        for wire in self.wires:
+            config = wire.config[wire.axis]
+            hist = ws_params[getattr(self,f"{config["key_prefix"]}hist_key")]
+            axis = hist[:, 0]
+            profile = hist[:, 1]
+            wire_pos = wire.position
+            value = np.interp(wire_pos, axis, profile, left=0, right=0)
+            self.update_measurement(getattr(self,f"{config["key_prefix"]}charge_pv"), value)
+            self.update_measurement(getattr(self,f"{config["key_prefix"]}profile_pv"), profile)
+            self.update_measurement(getattr(self,f"{config["key_prefix"]}axis_pv"), axis)
+            self.update_measurement(getattr(self,f"{config["key_prefix"]}avg_pv"), ws_params[getattr(self,f"{config["key_prefix"]}avg_key")])
+            self.update_measurement(getattr(self,f"{config["key_prefix"]}sigma_pv"), ws_params[getattr(self,f"{config["key_prefix"]}sigma_key")])
 
 
 class Screen(Device):

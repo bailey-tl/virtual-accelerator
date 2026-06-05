@@ -116,7 +116,7 @@ def add_va_arguments(va_parser: VA_Parser) -> VA_Parser:
     # Number (in Hz) determining the update rate for the virtual accelerator.
     va_parser.add_va_argument('--refresh_rate', default=1.0, type=float,
                               help='Rate (in Hz) at which the virtual accelerator updates.')
-    va_parser.add_va_argument('--update_frequency', default=10.0, type=float,
+    va_parser.add_va_argument('--device_frequency', default=10.0, type=float,
                               help='Rate (in Hz) at which the server updates.')
     va_parser.add_va_argument('--sync_time', dest='sync_time', action='store_true',
                               help="Synchronize timestamps for server parameters.")
@@ -179,14 +179,14 @@ class VirtualAccelerator(Generic[ModelType, ServerType]):
 
         self.sync_time = kwargs['sync_time']
         self.update_period = 1 / kwargs['refresh_rate']
-        self.server_period = 1 / kwargs['update_frequency']
+        self.server_period = 1 / kwargs['device_frequency']
 
         self.model = model
         self.beam_line = beam_line
         self.server = server
 
-        sever_parameters = beam_line.get_server_parameter_definitions()
-        server.add_parameters(sever_parameters)
+        server_parameters = beam_line.get_server_parameter_definitions()
+        server.add_parameters(server_parameters)
         server.add_parameter("VIRAC:beam_time", {
             "value": 0.0,
             "count": 1
