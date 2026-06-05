@@ -335,6 +335,10 @@ class WireScanner(Device):
     y_axis_pv = 'Ver_Axis'  # [mm]
     d_profile_pv = 'Diag_Profile' # [arb. units]
     d_axis_pv = 'Diag_Axis'  # [mm]
+    x_trace_pv = "Hor_trace"
+    y_trace_pv = "Ver_trace"
+    d_trace_pv = "Diag_trace"
+    trace_time_pv = "trace_times"
     refresh_rate_pv = 'BeamRepRate' # [Hz]
 
     # PyORBIT parameter keys
@@ -361,6 +365,10 @@ class WireScanner(Device):
     # diagonal wire will be in the middle
     d_offset = 0.0 # [m]
     wire_coeff = 1 / math.sqrt(2)
+    trace_bin_number = 1024
+    pulse_width = 0.01  # [ms]
+    trace_time = 0.1  # [ms]
+    reduction_factor = 20 # [arb]
 
     # Device Defaults. These will be overridden by initial_dict if keys match
     initial_defaults = {
@@ -417,6 +425,11 @@ class WireScanner(Device):
         self.register_measurement(WireScanner.x_axis_pv, transform=self.milli_units, definition={'count': self.bin_number})
         self.register_measurement(WireScanner.y_profile_pv, definition={'count': self.bin_number})
         self.register_measurement(WireScanner.y_axis_pv, transform=self.milli_units, definition={'count': self.bin_number})
+        self.register_measurement(WireScanner.x_trace_pv, definition={'count': self.trace_bin_number})
+        self.register_measurement(WireScanner.y_trace_pv, definition={'count': self.trace_bin_number})
+        self.register_measurement(WireScanner.trace_time_pv, definition={'count': self.trace_bin_number})
+        times = np.linspace(0, self.trace_time, self.trace_bin_number)
+        self.update_measurement(WireScanner.trace_time_pv, times)
         # self.register_measurement(WireScanner.d_profile_pv, definition={'count': bin_number})
         # self.register_measurement(WireScanner.d_axis_pv, transform=self.milli_units, definition={'count': bin_number})
         # PVs for client I/O
@@ -447,6 +460,16 @@ class WireScanner(Device):
         def set_wire_position(self, position: float):
             wire_factors = self.config[self.axis]
             self.position = position + wire_factors["offset"]
+
+        def generate_trace(self,amp):
+            waveform = np.random.normal(0,1,self.ws.trace_bin_number)
+            pulse_start_index = int((1 - self.ws.pulse_width/self.ws.trace_time) * self.ws.trace_bin_number / 2)
+            pulse_stop_index = int((1 + self.ws.pulse_width/self.ws.trace_time) * self.ws.trace_bin_number / 2)
+            waveform[pulse_start_index:+pulse_stop_index] += amp
+            waveform /= self.ws.reduction_factor
+            return waveform
+
+
     # Function to find the position of the virtual wire using time of flight from the previous position and the speed of
     # the wire. (Thomas Bailey:) I moved much of this code into update_readbacks alongside the addition of the event
     # generating loop in the server. This function is still called in slit_va.py so it is left, with the same return
@@ -487,13 +510,14 @@ class WireScanner(Device):
             axis = hist[:, 0]
             profile = hist[:, 1]
             wire_pos = wire.position
+            key = config["key_prefix"]
             value = np.interp(wire_pos, axis, profile, left=0, right=0)
-            self.update_measurement(getattr(self,f"{config["key_prefix"]}charge_pv"), value)
-            self.update_measurement(getattr(self,f"{config["key_prefix"]}profile_pv"), profile)
-            self.update_measurement(getattr(self,f"{config["key_prefix"]}axis_pv"), axis)
-            self.update_measurement(getattr(self,f"{config["key_prefix"]}avg_pv"), ws_params[getattr(self,f"{config["key_prefix"]}avg_key")])
-            self.update_measurement(getattr(self,f"{config["key_prefix"]}sigma_pv"), ws_params[getattr(self,f"{config["key_prefix"]}sigma_key")])
-
+            self.update_measurement(getattr(self,f"{key}charge_pv"), value)
+            self.update_measurement(getattr(self,f"{key}profile_pv"), profile)
+            self.update_measurement(getattr(self,f"{key}axis_pv"), axis)
+            self.update_measurement(getattr(self,f"{key}avg_pv"), ws_params[getattr(self,f"{key}avg_key")])
+            self.update_measurement(getattr(self,f"{key}sigma_pv"), ws_params[getattr(self,f"{key}sigma_key")])
+            self.update_measurement(getattr(self,f"{key}trace_pv"), wire.generate_trace(value))
 
 class Screen(Device):
     # EPICS PV names

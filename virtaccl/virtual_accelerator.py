@@ -250,7 +250,6 @@ class VirtualAccelerator(Generic[ModelType, ServerType]):
         self.beam_line.update_settings_from_server(server_parameters)
         new_measurements = self.model.get_measurements()
 
-        self.beam_line.update_measurements_from_model(new_measurements)
         self.beam_line.update_readbacks()
         new_server_values = self.beam_line.get_parameters_for_server()
         self.server.set_parameters(new_server_values, timestamp=timestamp)
