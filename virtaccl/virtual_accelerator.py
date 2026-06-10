@@ -333,7 +333,9 @@ class VirtualAccelerator(Generic[ModelType, ServerType]):
     def handle_rbks_event(self):
         self.readback()
 
-    # CA event handler placeholder. Server already updates values once CA
-    # events happen, so this is not needed at the moment.
+    # If there's any extra work do be done on a PV update, this is the place to do it.
     def handle_ca_events(self, event: Event):
-        pass
+        device_name = event.device
+        attr = event.attr
+        value = event.value
+        self.beam_line.devices[device_name].handle_ca_event(attr, value)
