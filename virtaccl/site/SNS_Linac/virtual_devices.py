@@ -349,17 +349,17 @@ class WireScanner(Device):
     y_sigma_pv = 'Ver_Sigma_gs'  # [mm]
     d_sigma_pv = 'Diag_Sigma_gs' # [mm]
     # Resulting profile PVs
-    x_profile_pv = 'Hor_Profile'  # [arb. units]
-    x_axis_pv = 'Hor_Axis'  # [mm]
-    y_profile_pv = 'Ver_Profile'  # [arb. units]
-    y_axis_pv = 'Ver_Axis'  # [mm]
-    d_profile_pv = 'Diag_Profile' # [arb. units]
-    d_axis_pv = 'Diag_Axis'  # [mm]
+    x_profile_pv = 'Hor_live_sig'  # [arb. units]
+    x_axis_pv = 'Hor_live_pos'  # [mm]
+    y_profile_pv = 'Ver_live_sig'  # [arb. units]
+    y_axis_pv = 'Ver_live_pos'  # [mm]
+    d_profile_pv = 'Diag_live_sig' # [arb. units]
+    d_axis_pv = 'Diag_live_pos'  # [mm]
     # Pulse trace PVs
-    x_trace_pv = "Hor_trace"
-    y_trace_pv = "Ver_trace"
-    d_trace_pv = "Diag_trace"
-    trace_time_pv = "trace_times"
+    x_trace_pv = "Hor_trace_raw"
+    y_trace_pv = "Ver_trace_raw"
+    d_trace_pv = "Diag_trace_raw"
+    trace_time_pv = "trace_x"
     refresh_rate_pv = 'BeamRepRate' # [Hz]
     # Command PV is what client uses to request wire scanner to do things
     command_pv = 'Command' # int
@@ -529,8 +529,8 @@ class WireScanner(Device):
 
         # Gets updated scan limits from client
         def update_scan_limits(self):
-            self.start = getattr(self.ws,f"{self.prefix}start")
-            self.stop = getattr(self.ws,f"{self.prefix}stop")
+            self.start = self.ws.get_parameter_value(getattr(self.ws,f"{self.prefix}start_pv"))
+            self.stop = self.ws.get_parameter_value(getattr(self.ws,f"{self.prefix}stop_pv"))
 
         # Gets updated dX spacing from client, then determines new speed for
         # when this wire is actively being scanned. If the wire isn't being
@@ -608,15 +608,16 @@ class WireScanner(Device):
             elif self.scanning and now > self.scan_start + 1:
                 self.scanning = False
                 self.handle_command(self.Command.Idle)
-            self.update_readback("Position",new_position)
+            self.update_readback(self.position_readback_pv,new_position)
         else:
-            self.update_readback("Position",new_position)
+            self.update_readback(self.position_readback_pv,new_position)
         # set values for next step
         self.last_wire_pos = new_position
         self.last_wire_time = time.time()
         # Finally, update position of individual wires
         for wire in self.wires:
             wire.set_wire_position(new_position)
+            wire.update_scan_limits()
 
     # Called on beam events and determines how much charge each wire sees
     def update_measurements(self, new_params: Dict[str, Dict[str, Any]] = None):
@@ -689,7 +690,7 @@ class WireScanner(Device):
                 self.do_halt()
             case self.Command.Idle:
                 self.do_idle()
-    # Only getting the wire from A-->B, not scanning involved
+    # Only getting the wire from A-->B, no scanning involved
     def do_move(self):
         self.moving = True
         self.scan_init = False
@@ -712,14 +713,15 @@ class WireScanner(Device):
         midpoint = (lo+hi)/2
         scan_init = time.time()
         current_position = self.get_parameter_value(self.position_readback_pv)
-        self.update_readback("Speed", self.max_speed)
+        self.update_readback(self.speed_pv, self.max_speed)
         # Once we start towards one end, determine how long it will take to get there
         if current_position > midpoint:
             self.setpoint = hi
-            self.scan_start = scan_init + abs(hi - current_position) / self.max_speed + 0.25
         else:
             self.setpoint = lo
-            self.scan_start = scan_init + abs(current_position - lo) / self.max_speed + 0.25
+        self.server_setting_override(self.position_pv, self.setpoint)
+        self.update_setting(self.position_pv, self.setpoint)
+        self.scan_start = scan_init + abs(current_position - self.setpoint) / self.max_speed + 0.25
 
     # Stop immediately and move to the park position
     def do_park(self):
