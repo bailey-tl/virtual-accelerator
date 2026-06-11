@@ -4,24 +4,20 @@
 # cd ../EPICS/
 #  python virtual_accelerator.py --debug --refresh_rate 0.5 --bunch MEBT_in.dat --sequences MEBT
 
+# Reworked (Thomas Bailey) for overhaul of wire scanner in virac.
+
 from epics import caget, caput
-from time import sleep
+
 ws = 'MEBT_Diag:WS14'
-set_point = f'{ws}:Position_Set'
 position = f'{ws}:Position'
-speed = f'{ws}:Speed_Set'
+command = f'{ws}:Command'
 x = f'{ws}:Hor_Cont'
 y = f'{ws}:Ver_Cont'
 
-print('Retract fork')
-caput(speed, 100)
-caput(set_point, -25)
-sleep(2)
-print('Start scan')
-caput(speed, 0.5)
-caput(set_point, 25)
+caput(command, 21)
+
 print(f'{"Position":^12s}  {"x":^8s}  {"y":^8s}')
-for i in range(100):
+for i in range(32):
     p = caget(position)
     charge_x = caget(x)
     charge_y = caget(y)
