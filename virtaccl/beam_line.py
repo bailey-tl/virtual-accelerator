@@ -321,7 +321,7 @@ class Device:
         parameter_db = {v.get_server_key(): v for k, v in self.parameters.items()}
         return parameter_db
     # Give every device a chance to do something extra when PVs are updated externally
-    def handle_ca_event(self,**kwargs):
+    def handle_ca_event(self,*kwargs):
         pass
 
 
