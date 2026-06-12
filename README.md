@@ -1,5 +1,21 @@
 # Virtual Accelerator
 
+## Table of Contents
+- [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [Installing with pip](#installing-with-pip)
+    - [Installing EPICS](#installing-epics)
+    - [Installing PyORBIT](#installing-pyorbit)
+    - [Installing Virac](#installing-virac)
+  - [Installing with conda](#installing-with-conda)
+- [Run](#run)
+  - [Client environment setup](#client-environment-setup)
+  - [Default SNS virtual accelerator](#default-sns-virtual-accelerator)
+  - [Run standard examples](#run-standard-examples)
+  - [BTF beamline](#btf-beamline)
+  - [Hardcoded IDmp beamline of the SNS accelerator](#hardcoded-idmp-beamline-of-the-sns-accelerator)
+ - [Tools](#tools)
+   - [Wire Scanner](#wire-scanner)
 ## Installation
 
 ### Prerequisites 
@@ -123,4 +139,14 @@ Run with default bunch
 idmp_va --debug
 ```
 
+## Tools
 
+### Wire Scanner
+
+A wire scanner client is available that can be used on any of the virtual wire scanners, or the physical ones used 
+at SNS. It is hosted on `code_int.ornl.gov` and can be installed via
+```
+pip install git+https://code-int.ornl.gov/t18/WireScanner
+```
+Then open the wire scanner launcher with `ws_client --prod`. The `--prod` flag enables CA writing, allowing for 
+control of the wire scanner
