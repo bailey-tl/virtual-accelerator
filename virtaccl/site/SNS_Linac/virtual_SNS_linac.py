@@ -120,6 +120,13 @@ def build_sns(**kwargs):
 
     beam_line = BeamLine()
 
+    physics_devices = [
+        "HEBT_Diag:WS01",
+        "HEBT_Diag:WS02",
+        "HEBT_Diag:WS03",
+        "HEBT_Diag:WS04"
+    ]
+
     offset_file = kwargs['phase_offset']
     if offset_file is not None:
         with open(offset_file, "r") as json_file:
@@ -128,10 +135,8 @@ def build_sns(**kwargs):
     cavities = devices_dict["RF_Cavity"]
     for name, device_dict in cavities.items():
         ele_name = device_dict["PyORBIT_Name"]
-        is_physics_device = bool(device_dict["Physics_Device"])
-
         if ele_name in element_list:
-            if is_physics_device:
+            if ele_name in physics_devices:
                 add_physics_device(name,model,ele_name,beam_line)
             amplitude = device_dict["Design_Amplitude"]
             initial_settings = model.get_element_parameters(ele_name)
@@ -152,10 +157,8 @@ def build_sns(**kwargs):
     for name, device_dict in quads.items():
         ele_name = device_dict["PyORBIT_Name"]
         polarity = device_dict["Polarity"]
-        is_physics_device = bool(device_dict["Physics_Device"])
-
         if ele_name in element_list:
-            if is_physics_device:
+            if ele_name in physics_devices:
                 add_physics_device(name,model,ele_name,beam_line)
             initial_field_str = abs(model.get_element_parameters(ele_name)['dB/dr'])
             if "Power_Supply" in device_dict and device_dict["Power_Supply"] in quad_ps_names:
@@ -198,8 +201,6 @@ def build_sns(**kwargs):
     for name, device_dict in correctors.items():
         ele_name = device_dict["PyORBIT_Name"]
         polarity = device_dict["Polarity"]
-        is_physics_device = bool(device_dict["Physics_Device"])
-
         if ele_name in element_list:
             initial_field = model.get_element_parameters(ele_name)['B']
             if "Power_Supply" in device_dict and device_dict["Power_Supply"] in devices_dict["Corrector_Power_Supply"]:
@@ -208,15 +209,13 @@ def build_sns(**kwargs):
                 beam_line.add_device(ps_device)
                 corrector_device = Corrector(name, ele_name, power_supply=ps_device, polarity=polarity)
                 beam_line.add_device(corrector_device)
-                if is_physics_device:
+                if ele_name in physics_devices:
                     add_physics_device(name, model, ele_name, beam_line)
 
 
     bends = devices_dict["Bend"]
     for name, device_dict in bends.items():
         ele_name = device_dict["PyORBIT_Name"]
-        is_physics_device = bool(device_dict["Physics_Device"])
-
         if ele_name in element_list:
             initial_field = 0
             if "Power_Supply" in device_dict and device_dict["Power_Supply"] in devices_dict["Bend_Power_Supply"]:
@@ -225,31 +224,24 @@ def build_sns(**kwargs):
                 beam_line.add_device(ps_device)
                 bend_device = Bend(name, ele_name, power_supply=ps_device)
                 beam_line.add_device(bend_device)
-                if is_physics_device:
+                if ele_name in physics_devices:
                     add_physics_device(name, model, ele_name, beam_line)
 
     wire_scanners = devices_dict["Wire_Scanner"]
     bin_number = 50
-    for name, device_dict in wire_scanners.items():
-        model_name = device_dict["PyORBIT_Name"]
-        wire_count = device_dict["wire_count"]
-        is_physics_device = bool(device_dict["Physics_Device"])
+    for name, model_name in wire_scanners.items():
         if model_name in element_list:
             # Passing refresh rate to the WireScanner device for velocity calculations.
             ws_device = WireScanner(name, model_name, {
                 'refresh_rate':refresh_rate,
                 'update_frequency':update_frequency})
-            # These lines establish the physics devices for the wire scanners, without having to turn
-            # them on for the whole virac.
-            if is_physics_device:
+            if model_name in physics_devices:
                 add_physics_device(name,model,model_name,beam_line)
             beam_line.add_device(ws_device)
-
 
     bpms = devices_dict["BPM"]
     for name, device_dict in bpms.items():
         ele_name = device_dict["PyORBIT_Name"]
-        is_physics_device = bool(device_dict["Physics_Device"])
         if ele_name in element_list:
             phase_offset = 0
             if offset_file is not None:
@@ -257,7 +249,7 @@ def build_sns(**kwargs):
 
             bpm_device = BPM(name, ele_name, phase_offset=phase_offset)
             beam_line.add_device(bpm_device)
-            if is_physics_device:
+            if ele_name in physics_devices:
                 add_physics_device(name,model,ele_name,beam_line)
 
     dummy_device = SNS_Dummy_BCM("Ring_Diag:BCM_D09", 'HEBT_Diag:BPM11')
@@ -269,6 +261,7 @@ def build_sns(**kwargs):
     server = EPICS_Server(process_delay=delay)
 
     sns_virac = PyorbitVirtualAcceleratorBuilder(model, beam_line, server, **kwargs)
+
     # This forces the server to populate its parameter dictionary with physics
     # nodes if they aren't added via command line flag
     model.force_track()
