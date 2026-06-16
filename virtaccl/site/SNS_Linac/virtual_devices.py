@@ -608,6 +608,7 @@ class WireScanner(Device):
             elif self.scanning and now > self.scan_start + 1:
                 self.scanning = False
                 self.handle_command(self.Command.Idle)
+                self.server_setting_override(self.command_pv, self.Command.Idle)
             self.update_readback(self.position_readback_pv,new_position)
         else:
             self.update_readback(self.position_readback_pv,new_position)
