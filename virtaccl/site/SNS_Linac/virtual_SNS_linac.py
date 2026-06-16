@@ -7,6 +7,7 @@ from orbit.py_linac.lattice import LinacPhaseApertureNode
 from orbit.py_linac.lattice_modifications import Add_quad_apertures_to_lattice, Add_rfgap_apertures_to_lattice
 from orbit.core.bunch import Bunch
 from orbit.core.linac import BaseRfGap, RfGapTTF
+from virtaccl import beam_line
 
 from virtaccl.site.SNS_Linac.orbit_model.sns_linac_lattice_factory import PyORBIT_Lattice_Factory
 from virtaccl.site.SNS_Linac.virtual_devices import (BPM, Quadrupole, Corrector, WireScanner, Quadrupole_Power_Supply,
@@ -16,10 +17,11 @@ from virtaccl.site.SNS_Linac.virtual_devices_SNS import SNS_Dummy_BCM, SNS_Cavit
 
 from virtaccl.PyORBIT_Model.pyorbit_virtual_accelerator import PyorbitVirtualAcceleratorBuilder, add_pyorbit_arguments
 from virtaccl.PyORBIT_Model.pyorbit_lattice_controller import OrbitModel
-from virtaccl.PyORBIT_Model.pyorbit_va_nodes import BPMclass, WSclass
+from virtaccl.PyORBIT_Model.pyorbit_va_nodes import BPMclass, WSclass, \
+    PhysicsClass
 
 from virtaccl.EPICS_Server.ca_server import EPICS_Server, add_epics_arguments
-from virtaccl.beam_line import BeamLine
+from virtaccl.beam_line import BeamLine, PhysicsDevice
 
 from virtaccl.virtual_accelerator import VA_Parser
 
@@ -126,7 +128,11 @@ def build_sns(**kwargs):
     cavities = devices_dict["RF_Cavity"]
     for name, device_dict in cavities.items():
         ele_name = device_dict["PyORBIT_Name"]
+        is_physics_device = bool(device_dict["Physics_Device"])
+
         if ele_name in element_list:
+            if is_physics_device:
+                add_physics_device(name,model,ele_name,beam_line)
             amplitude = device_dict["Design_Amplitude"]
             initial_settings = model.get_element_parameters(ele_name)
             initial_settings['amp'] = 1
@@ -146,7 +152,11 @@ def build_sns(**kwargs):
     for name, device_dict in quads.items():
         ele_name = device_dict["PyORBIT_Name"]
         polarity = device_dict["Polarity"]
+        is_physics_device = bool(device_dict["Physics_Device"])
+
         if ele_name in element_list:
+            if is_physics_device:
+                add_physics_device(name,model,ele_name,beam_line)
             initial_field_str = abs(model.get_element_parameters(ele_name)['dB/dr'])
             if "Power_Supply" in device_dict and device_dict["Power_Supply"] in quad_ps_names:
                 ps_name = device_dict["Power_Supply"]
@@ -188,6 +198,8 @@ def build_sns(**kwargs):
     for name, device_dict in correctors.items():
         ele_name = device_dict["PyORBIT_Name"]
         polarity = device_dict["Polarity"]
+        is_physics_device = bool(device_dict["Physics_Device"])
+
         if ele_name in element_list:
             initial_field = model.get_element_parameters(ele_name)['B']
             if "Power_Supply" in device_dict and device_dict["Power_Supply"] in devices_dict["Corrector_Power_Supply"]:
@@ -196,10 +208,15 @@ def build_sns(**kwargs):
                 beam_line.add_device(ps_device)
                 corrector_device = Corrector(name, ele_name, power_supply=ps_device, polarity=polarity)
                 beam_line.add_device(corrector_device)
+                if is_physics_device:
+                    add_physics_device(name, model, ele_name, beam_line)
+
 
     bends = devices_dict["Bend"]
     for name, device_dict in bends.items():
         ele_name = device_dict["PyORBIT_Name"]
+        is_physics_device = bool(device_dict["Physics_Device"])
+
         if ele_name in element_list:
             initial_field = 0
             if "Power_Supply" in device_dict and device_dict["Power_Supply"] in devices_dict["Bend_Power_Supply"]:
@@ -208,27 +225,40 @@ def build_sns(**kwargs):
                 beam_line.add_device(ps_device)
                 bend_device = Bend(name, ele_name, power_supply=ps_device)
                 beam_line.add_device(bend_device)
+                if is_physics_device:
+                    add_physics_device(name, model, ele_name, beam_line)
 
     wire_scanners = devices_dict["Wire_Scanner"]
     bin_number = 50
-    for name, model_name in wire_scanners.items():
+    for name, device_dict in wire_scanners.items():
+        model_name = device_dict["PyORBIT_Name"]
+        wire_count = device_dict["wire_count"]
+        is_physics_device = bool(device_dict["Physics_Device"])
         if model_name in element_list:
-            model.get_element_controller(model_name).get_element().setBinNumber(bin_number)
             # Passing refresh rate to the WireScanner device for velocity calculations.
             ws_device = WireScanner(name, model_name, {
                 'refresh_rate':refresh_rate,
                 'update_frequency':update_frequency})
+            # These lines establish the physics devices for the wire scanners, without having to turn
+            # them on for the whole virac.
+            if is_physics_device:
+                add_physics_device(name,model,model_name,beam_line)
             beam_line.add_device(ws_device)
+
 
     bpms = devices_dict["BPM"]
     for name, device_dict in bpms.items():
         ele_name = device_dict["PyORBIT_Name"]
+        is_physics_device = bool(device_dict["Physics_Device"])
         if ele_name in element_list:
             phase_offset = 0
             if offset_file is not None:
                 phase_offset = offset_dict[name]
+
             bpm_device = BPM(name, ele_name, phase_offset=phase_offset)
             beam_line.add_device(bpm_device)
+            if is_physics_device:
+                add_physics_device(name,model,ele_name,beam_line)
 
     dummy_device = SNS_Dummy_BCM("Ring_Diag:BCM_D09", 'HEBT_Diag:BPM11')
     beam_line.add_device(dummy_device)
@@ -239,8 +269,16 @@ def build_sns(**kwargs):
     server = EPICS_Server(process_delay=delay)
 
     sns_virac = PyorbitVirtualAcceleratorBuilder(model, beam_line, server, **kwargs)
+    # This forces the server to populate its parameter dictionary with physics
+    # nodes if they aren't added via command line flag
+    model.force_track()
     return sns_virac
 
+def add_physics_device(name,model,model_name,beam_line):
+    physics_child = PhysicsClass(f"{name}:Physics")
+    model.add_child_node(model_name, physics_child)
+    phys_device = PhysicsDevice(f"{name}:Physics")
+    beam_line.add_device(phys_device)
 
 def main():
     args = sns_arguments()
