@@ -85,6 +85,8 @@ def build_sns(**kwargs):
     beam_current = kwargs['beam_current'] / 1000  # Set the initial beam current in Amps.
     bunch_frequency = 402.5e6
     si_e_charge = 1.6021773e-19
+    # List of PyORBIT names of devices that have physics nodes.
+    physics_devices = ["HEBT_Diag:WS01"]
 
     if isinstance(kwargs['bunch'], Bunch):
         bunch_in = kwargs['bunch']
@@ -120,13 +122,6 @@ def build_sns(**kwargs):
 
     beam_line = BeamLine()
 
-    physics_devices = [
-        "HEBT_Diag:WS01",
-        "HEBT_Diag:WS02",
-        "HEBT_Diag:WS03",
-        "HEBT_Diag:WS04"
-    ]
-
     offset_file = kwargs['phase_offset']
     if offset_file is not None:
         with open(offset_file, "r") as json_file:
@@ -136,8 +131,6 @@ def build_sns(**kwargs):
     for name, device_dict in cavities.items():
         ele_name = device_dict["PyORBIT_Name"]
         if ele_name in element_list:
-            if ele_name in physics_devices:
-                add_physics_device(name,model,ele_name,beam_line)
             amplitude = device_dict["Design_Amplitude"]
             initial_settings = model.get_element_parameters(ele_name)
             initial_settings['amp'] = 1
@@ -158,8 +151,6 @@ def build_sns(**kwargs):
         ele_name = device_dict["PyORBIT_Name"]
         polarity = device_dict["Polarity"]
         if ele_name in element_list:
-            if ele_name in physics_devices:
-                add_physics_device(name,model,ele_name,beam_line)
             initial_field_str = abs(model.get_element_parameters(ele_name)['dB/dr'])
             if "Power_Supply" in device_dict and device_dict["Power_Supply"] in quad_ps_names:
                 ps_name = device_dict["Power_Supply"]
@@ -209,8 +200,6 @@ def build_sns(**kwargs):
                 beam_line.add_device(ps_device)
                 corrector_device = Corrector(name, ele_name, power_supply=ps_device, polarity=polarity)
                 beam_line.add_device(corrector_device)
-                if ele_name in physics_devices:
-                    add_physics_device(name, model, ele_name, beam_line)
 
 
     bends = devices_dict["Bend"]
@@ -224,19 +213,14 @@ def build_sns(**kwargs):
                 beam_line.add_device(ps_device)
                 bend_device = Bend(name, ele_name, power_supply=ps_device)
                 beam_line.add_device(bend_device)
-                if ele_name in physics_devices:
-                    add_physics_device(name, model, ele_name, beam_line)
 
     wire_scanners = devices_dict["Wire_Scanner"]
-    bin_number = 50
     for name, model_name in wire_scanners.items():
         if model_name in element_list:
             # Passing refresh rate to the WireScanner device for velocity calculations.
             ws_device = WireScanner(name, model_name, {
                 'refresh_rate':refresh_rate,
                 'update_frequency':update_frequency})
-            if model_name in physics_devices:
-                add_physics_device(name,model,model_name,beam_line)
             beam_line.add_device(ws_device)
 
     bpms = devices_dict["BPM"]
@@ -249,8 +233,6 @@ def build_sns(**kwargs):
 
             bpm_device = BPM(name, ele_name, phase_offset=phase_offset)
             beam_line.add_device(bpm_device)
-            if ele_name in physics_devices:
-                add_physics_device(name,model,ele_name,beam_line)
 
     dummy_device = SNS_Dummy_BCM("Ring_Diag:BCM_D09", 'HEBT_Diag:BPM11')
     beam_line.add_device(dummy_device)
@@ -260,18 +242,9 @@ def build_sns(**kwargs):
     delay = kwargs['ca_proc']
     server = EPICS_Server(process_delay=delay)
 
-    sns_virac = PyorbitVirtualAcceleratorBuilder(model, beam_line, server, **kwargs)
+    sns_virac = PyorbitVirtualAcceleratorBuilder(model, beam_line, server, physics_devices, **kwargs)
 
-    # This forces the server to populate its parameter dictionary with physics
-    # nodes if they aren't added via command line flag
-    model.force_track()
     return sns_virac
-
-def add_physics_device(name,model,model_name,beam_line):
-    physics_child = PhysicsClass(f"{name}:Physics")
-    model.add_child_node(model_name, physics_child)
-    phys_device = PhysicsDevice(f"{name}:Physics")
-    beam_line.add_device(phys_device)
 
 def main():
     args = sns_arguments()
