@@ -86,7 +86,12 @@ def build_sns(**kwargs):
     bunch_frequency = 402.5e6
     si_e_charge = 1.6021773e-19
     # List of PyORBIT names of devices that have physics nodes.
-    physics_devices = ["HEBT_Diag:WS01"]
+    physics_devices = [
+        "HEBT_Diag:WS01",
+        "HEBT_Diag:WS02",
+        "HEBT_Diag:WS03",
+        "HEBT_Diag:WS04",
+    ]
 
     if isinstance(kwargs['bunch'], Bunch):
         bunch_in = kwargs['bunch']
