@@ -160,6 +160,8 @@ class Cavity(Device):
     amp_pv = 'CtlAmpSet'  # [arb. units]
     amp_goal_pv = 'cavAmpGoal'  # [arb. units]
     blank_pv = 'BlnkBeam'  # [0 or 1]
+    phase_rbk_pv = "cavPhaseAvg"
+    amp_rbk_pv = "cavAmpAvg"
 
     # PyORBIT parameter keys
     phase_key = 'phase'  # [radians]
@@ -202,6 +204,9 @@ class Cavity(Device):
         self.register_setting(Cavity.amp_pv, default=initial_amp, transform=amp_transform)
         self.register_setting(Cavity.amp_goal_pv, default=initial_amp, transform=amp_transform)
         self.register_setting(Cavity.blank_pv, default=0.0)
+
+        self.register_readback(Cavity.phase_rbk_pv,Cavity.phase_pv,transform=offset_transform)
+        self.register_readback(Cavity.amp_rbk_pv,Cavity.amp_pv,transform=amp_transform)
 
     # Return the setting value of the PV name for the device as a dictionary using the model key and it's value. This is
     # where the setting PV names are associated with their model keys.
